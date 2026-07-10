@@ -8,14 +8,14 @@ in order: a direct lookup, the reverse pair (reciprocal), or a bridged cross-rat
 any intermediate pair that shares the base or quote asset.
 
 The helper functions (``combine_to_hb_trading_pair``, ``split_hb_trading_pair`` and
-``unwrap_token_symbol``) are reused from hummingbot to keep trading-pair formatting and
-token unwrapping identical to the rest of the stack.
+``normalize_token_symbol``) are reused from hummingbot to keep trading-pair formatting and
+token normalization identical to the rest of the stack.
 """
 from decimal import Decimal
 from typing import Dict, Optional
 
 from hummingbot.connector.utils import combine_to_hb_trading_pair, split_hb_trading_pair
-from hummingbot.core.gateway.utils import unwrap_token_symbol
+from hummingbot.core.rate_oracle.utils import normalize_token_symbol
 
 
 def find_rate(prices: Dict[str, Decimal], pair: str) -> Optional[Decimal]:
@@ -39,10 +39,15 @@ def find_rate(prices: Dict[str, Decimal], pair: str) -> Optional[Decimal]:
     if pair in prices:
         return prices[pair]
     base, quote = split_hb_trading_pair(trading_pair=pair)
-    base = unwrap_token_symbol(base)
-    quote = unwrap_token_symbol(quote)
+    base = normalize_token_symbol(base)
+    quote = normalize_token_symbol(quote)
     if base == quote:
         return Decimal("1")
+    # Re-check the direct pair after normalizing (e.g. HBOT-USD -> HBOT-USDT) before
+    # attempting reverse-pair or path-bridging lookups.
+    normalized_pair = combine_to_hb_trading_pair(base=base, quote=quote)
+    if normalized_pair in prices:
+        return prices[normalized_pair]
     reverse_pair = combine_to_hb_trading_pair(base=quote, quote=base)
     if reverse_pair in prices and prices[reverse_pair] > Decimal("0"):
         return Decimal("1") / prices[reverse_pair]
