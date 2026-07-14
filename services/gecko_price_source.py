@@ -25,6 +25,8 @@ import time
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
+from services.gateway_client import GatewayError, check_gateway_error
+
 logger = logging.getLogger(__name__)
 
 # GeckoTerminal accepts at most 30 token addresses per simple-token-price call.
@@ -124,7 +126,13 @@ class GeckoPriceSource:
         if cached is not None and (time.time() - cached[0]) < _TOKEN_LIST_TTL:
             return cached[1]
 
-        response = await self._gateway_client.get_tokens(chain, network)
+        try:
+            response = check_gateway_error(await self._gateway_client.get_tokens(chain, network))
+        except GatewayError as e:
+            # Don't cache on Gateway errors — caching an empty map would silently disable
+            # Gecko pricing for the whole TTL window.
+            logger.warning(f"Gateway error fetching token list for {chain}/{network}: {e}")
+            return {}
         tokens = response.get("tokens", []) if isinstance(response, dict) else []
         mapping: Dict[str, str] = {}
         for token in tokens:

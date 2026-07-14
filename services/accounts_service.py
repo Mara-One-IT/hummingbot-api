@@ -1111,6 +1111,11 @@ class AccountsService:
                     logger.warning(f"Could not get config for '{chain}-{first_network}': {config}")
                     continue
 
+                # A Gateway HTTP error dict would otherwise read as "missing defaultWallet" below
+                if config is None or set(config.keys()) == {"error", "status"}:
+                    logger.warning(f"Gateway error getting config for '{chain}-{first_network}': {config}")
+                    continue
+
                 default_wallet = config.get("defaultWallet")
                 default_networks = config.get("defaultNetworks", [])
 
