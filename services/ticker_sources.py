@@ -159,6 +159,23 @@ async def _ascend_ex(connector) -> Dict[str, Ticker]:
     return await _normalize(connector, rows, extract)
 
 
+async def _coinbase_advanced_trade(connector) -> Dict[str, Ticker]:
+    # The connector's own get_all_pairs_prices() is both an async generator (the generic
+    # adapter's `await` on it raises, silently falling back to get_last_traded_prices() over
+    # every trading pair individually - 900+ concurrent requests against this connector's own
+    # 10-30 req/s throttler, which starves it for every other request, including one-off
+    # single-pair lookups) AND buggy (it iterates the raw /products payload as if it were
+    # already the bare list, but the endpoint actually wraps it as {"products": [...]}). Calling
+    # the endpoint directly here keeps this to one bulk, correctly-parsed request.
+    path = "/brokerage/products" if connector._use_auth_for_public_endpoints else "/brokerage/market/products"
+    payload = await connector._api_get(path_url=path, limit_id=path, is_auth_required=True)
+    rows = payload.get("products", []) if isinstance(payload, dict) else []
+    return await _normalize(
+        connector, rows,
+        lambda r: (r["product_id"], _mid(None, None, r.get("price")), None),
+    )
+
+
 # ==================== Generic adapter (price-only, any connector) ====================
 
 # Candidate field names, ordered by preference, used to parse arbitrary exchange ticker rows.
@@ -252,6 +269,7 @@ TICKER_ADAPTERS: Dict[str, Callable[[Any], Awaitable[Dict[str, Ticker]]]] = {
     "okx": _okx,
     "kucoin": _kucoin,
     "ascend_ex": _ascend_ex,
+    "coinbase_advanced_trade": _coinbase_advanced_trade,
 }
 
 
