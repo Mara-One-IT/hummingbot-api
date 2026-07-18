@@ -125,7 +125,14 @@ async def lifespan(app: FastAPI):
         gateway_api_port=str(parsed_gateway_url.port or 15888),
         gateway_use_ssl=gateway_use_ssl
     )
-    GatewayHttpClient.get_instance(gateway_config)
+    gateway_client = GatewayHttpClient.get_instance(gateway_config)
+    # Start the Gateway status monitor so Gateway's network connectors (e.g.
+    # 'solana-mainnet-beta', and any newly added chain like 'ethereum-unichain') are
+    # discovered from /config/chains and registered in AllConnectorSettings. Without
+    # it, a Gateway network only lands in AllConnectorSettings lazily, when a connector
+    # for it is first constructed; the monitor makes new chains enumerable without
+    # first deploying a bot on them, and picks them up when Gateway comes online later.
+    gateway_client.start_monitor()
     logging.info(f"Initialized GatewayHttpClient with URL: {settings.gateway.url}")
 
     # Initialize secrets manager and database
@@ -309,6 +316,7 @@ async def lifespan(app: FastAPI):
     await executor_service.stop()
     market_data_service.stop()
     await connector_service.stop_all()
+    GatewayHttpClient.get_instance().stop_monitor()
     docker_service.cleanup()
     await db_manager.close()
 
