@@ -111,14 +111,26 @@ async def lifespan(app: FastAPI):
     # 1. Infrastructure Setup
     # =========================================================================
 
+    # Initialize the secrets manager and log the master account in BEFORE any Gateway
+    # client exists: hummingbot's GatewayHttpClient decrypts its mTLS client key with
+    # Security.secrets_manager.password, which stays None until a login. Logging in
+    # here (instead of lazily on first connector creation) means the status monitor's
+    # very first ping can never hit an uninitialized Security.
+    secrets_manager = ETHKeyFileSecretManger(password=settings.security.config_password)
+    if not BackendAPISecurity.login_account(account_name="master_account", secrets_manager=secrets_manager):
+        raise RuntimeError(
+            "CONFIG_PASSWORD does not match the stored password verification file at "
+            f"bots/{settings.app.password_verification_path}"
+        )
+
     # Initialize GatewayHttpClient singleton
+    from utils.gateway_certs import certs_present, sync_client_certs_to_root
     parsed_gateway_url = urlparse(settings.gateway.url)
     gateway_use_ssl = parsed_gateway_url.scheme == "https"
     if gateway_use_ssl:
         # SEC-048: the in-process GatewayHttpClient reads its client certs only from
         # root_path()/certs. Mirror the shared cert set there if the Gateway was already
         # started in a previous run (no-op when certs haven't been generated yet).
-        from utils.gateway_certs import sync_client_certs_to_root
         sync_client_certs_to_root()
     gateway_config = GatewayConfigMap(
         gateway_api_host=parsed_gateway_url.hostname or "localhost",
@@ -132,11 +144,18 @@ async def lifespan(app: FastAPI):
     # it, a Gateway network only lands in AllConnectorSettings lazily, when a connector
     # for it is first constructed; the monitor makes new chains enumerable without
     # first deploying a bot on them, and picks them up when Gateway comes online later.
-    gateway_client.start_monitor()
+    # On a fresh install the shared mTLS certs don't exist until the Gateway is first
+    # started, and every 2s ping would fail loudly building the SSL context — defer;
+    # GatewayService.start() starts the monitor once the certs are generated.
+    if not gateway_use_ssl or certs_present():
+        gateway_client.start_monitor()
+    else:
+        logging.info(
+            "Gateway mTLS certs not generated yet; status monitor deferred until the Gateway is started"
+        )
     logging.info(f"Initialized GatewayHttpClient with URL: {settings.gateway.url}")
 
-    # Initialize secrets manager and database
-    secrets_manager = ETHKeyFileSecretManger(password=settings.security.config_password)
+    # Initialize database
     db_manager = AsyncDatabaseManager(settings.database.url)
     await db_manager.create_tables()
     logging.info("Database initialized")

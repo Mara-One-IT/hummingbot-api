@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 import docker
 from docker.errors import DockerException
 from docker.types import LogConfig
+from hummingbot.core.gateway.gateway_http_client import GatewayHttpClient
 
 from config import settings
 from models.gateway import GatewayConfig, GatewayStatus
@@ -171,7 +172,7 @@ class GatewayService:
             if existing_container.status == "running":
                 return {
                     "success": False,
-                    "message": f"Gateway is already running. Use stop first or restart to update configuration."
+                    "message": "Gateway is already running. Use stop first or restart to update configuration."
                 }
             else:
                 # Remove stopped container
@@ -285,9 +286,15 @@ class GatewayService:
                     )
 
             logger.info(f"Gateway container started successfully: {container.id}")
+
+            # On a fresh install the app lifespan defers the Gateway status monitor
+            # because the mTLS certs didn't exist yet; they were just generated above,
+            # so start it now (no-op when it is already running).
+            GatewayHttpClient.get_instance().start_monitor()
+
             return {
                 "success": True,
-                "message": f"Gateway started successfully",
+                "message": "Gateway started successfully",
                 "container_id": container.id,
                 "port": config.port
             }
