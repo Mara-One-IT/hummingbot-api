@@ -249,10 +249,17 @@ class AccountsService:
                 tasks = []
                 task_meta = []  # (account_name, connector_name)
 
+                gateway_meta = []  # (account_name, connector_name) of Gateway connectors
+
                 for account_name, connectors in all_connectors.items():
                     if account_name not in self.accounts_state:
                         self.accounts_state[account_name] = {}
                     for connector_name, connector in connectors.items():
+                        # Gateway connectors only track the tokens of their trading pairs; the
+                        # full wallet balance is fetched by _update_gateway_balances below.
+                        if self._connector_service.is_gateway_connector(connector):
+                            gateway_meta.append((account_name, connector_name))
+                            continue
                         tasks.append(self._refresh_and_get_tokens_info(connector, connector_name, account_name))
                         task_meta.append((account_name, connector_name))
 
@@ -272,6 +279,8 @@ class AccountsService:
                 gw_result = results[-1]
                 if isinstance(gw_result, Exception):
                     logger.error(f"Error updating gateway balances: {gw_result}")
+
+                self._mirror_gateway_state_to_accounts(gateway_meta)
 
                 await self.dump_account_state()
             except Exception as e:
@@ -406,6 +415,7 @@ class AccountsService:
         # Prepare parallel tasks
         tasks = []
         task_meta = []  # (account_name, connector_name)
+        gateway_meta = []  # (account_name, connector_name) of Gateway connectors
 
         for account_name, connectors in all_connectors.items():
             # Filter by account_names if specified
@@ -417,6 +427,13 @@ class AccountsService:
             for connector_name, connector in connectors.items():
                 # Filter by connector_names if specified
                 if connector_names and connector_name not in connector_names:
+                    continue
+
+                # Gateway connectors only track the tokens of their trading pairs; the full
+                # wallet balance is fetched by _update_gateway_balances below. Running both
+                # would overwrite the complete wallet state with the narrower connector view.
+                if self._connector_service.is_gateway_connector(connector):
+                    gateway_meta.append((account_name, connector_name))
                     continue
 
                 tasks.append(self._get_connector_tokens_info(connector, connector_name))
@@ -442,6 +459,26 @@ class AccountsService:
                 self.accounts_state[account_name][connector_name] = []
             else:
                 self.accounts_state[account_name][connector_name] = result
+
+        if not skip_gateway:
+            self._mirror_gateway_state_to_accounts(gateway_meta)
+
+    def _mirror_gateway_state_to_accounts(self, gateway_meta: List[tuple]):
+        """Mirror Gateway wallet balances onto non-master accounts holding the same connector.
+
+        _update_gateway_balances stores the full wallet balances under master_account. A
+        Gateway connector configured on another account trades the same Gateway default
+        wallet, so it reports the same balances.
+
+        Args:
+            gateway_meta: (account_name, connector_name) pairs of Gateway connectors.
+        """
+        master_state = self.accounts_state.get("master_account", {})
+        for account_name, connector_name in gateway_meta:
+            if account_name == "master_account":
+                continue
+            if connector_name in master_state:
+                self.accounts_state[account_name][connector_name] = master_state[connector_name]
 
     async def _get_connector_tokens_info(self, connector, connector_name: str, skip_balance_refresh: bool = False) -> List[Dict]:
         """Get token info from a connector instance using the ticker pool prices.

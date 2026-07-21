@@ -92,6 +92,17 @@ class UnifiedConnectorService:
         """
         return isinstance(connector, PerpetualDerivativePyBase)
 
+    def is_gateway_connector(self, connector: ConnectorBase) -> bool:
+        """Check if connector is a unified Gateway (on-chain) connector.
+
+        Args:
+            connector: The connector instance to check
+
+        Returns:
+            True if Gateway connector, False otherwise
+        """
+        return isinstance(connector, Gateway)
+
     # =========================================================================
     # Trading Connector Management (authenticated, per-account)
     # =========================================================================
