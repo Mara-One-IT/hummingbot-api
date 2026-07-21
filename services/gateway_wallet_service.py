@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from fastapi import HTTPException
 
-from services.gateway_client import GatewayClient
+from services.gateway_client import GatewayClient, check_gateway_error
 from services.gecko_price_source import GeckoPriceSource
 
 # Create module-specific logger
@@ -72,7 +72,7 @@ class GatewayWalletService:
         await self._require_gateway()
 
         try:
-            wallets = await self.gateway_client.get_wallets()
+            wallets = check_gateway_error(await self.gateway_client.get_wallets())
 
             # Enrich with default wallet info for each chain
             for wallet_group in wallets:
