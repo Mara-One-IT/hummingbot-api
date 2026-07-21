@@ -18,10 +18,16 @@ from hummingbot.connector.utils import combine_to_hb_trading_pair
 from hummingbot.data_feed.candles_feed.candles_factory import CandlesFactory, UnsupportedConnectorException
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 
+from services.candle_feeds import register_candle_feeds
 from services.ticker_sources import Ticker, fetch_tickers
 from utils.rate_finder import find_rate
 
 logger = logging.getLogger(__name__)
+
+# Add candle feeds missing from hummingbot's CandlesFactory (bitstamp,
+# coinbase_advanced_trade). Module-import time, so the /market-data/candles
+# router's CandlesFactory._candles_map checks see them too.
+register_candle_feeds()
 
 
 class FeedType(Enum):
