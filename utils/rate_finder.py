@@ -15,7 +15,12 @@ from decimal import Decimal
 from typing import Dict, Optional
 
 from hummingbot.connector.utils import combine_to_hb_trading_pair, split_hb_trading_pair
-from hummingbot.core.rate_oracle.utils import unwrap_token_symbol
+
+try:
+    from hummingbot.core.rate_oracle.utils import unwrap_token_symbol
+except ImportError:
+    # Older hummingbot releases ship this helper under its pre-rename name.
+    from hummingbot.core.rate_oracle.utils import normalize_token_symbol as unwrap_token_symbol
 
 
 def find_rate(prices: Dict[str, Decimal], pair: str) -> Optional[Decimal]:
